@@ -23,8 +23,6 @@ async function fetchAccessToken() {
       method: "POST",
     });
     const token = await response.text();
-
-    console.log("Access Token:", token);
     return token;
   } catch (error) {
     console.error("Error fetching access token:", error);
@@ -44,8 +42,123 @@ export function InterviewAvatar({
   const [message, setMessage] = useState('');
   const [conversationHistory, setConversationHistory] = useState<Message[]>([]);
   const [isAvatarSpeaking, setIsAvatarSpeaking] = useState(false);
+  const [inputMode, setInputMode] = useState<'text' | 'voice'>('text');
+  const [isRecording, setIsRecording] = useState(false);
+  const [transcript, setTranscript] = useState('');
+  
   const avatarRef = useRef<StreamingAvatar | null>(null);
   const sessionDataRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recognitionRef = useRef<any>(null);
+
+  // Initialize Web Speech API
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'webkitSpeechRecognition' in window) {
+      const SpeechRecognition = (window as any).webkitSpeechRecognition;
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
+      recognitionRef.current.lang = 'en-US';
+
+      recognitionRef.current.onresult = (event: any) => {
+        let finalTranscript = '';
+        let interimTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+
+        setTranscript(finalTranscript || interimTranscript);
+      };
+
+      recognitionRef.current.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        setIsRecording(false);
+      };
+
+      recognitionRef.current.onend = () => {
+        setIsRecording(false);
+      };
+    }
+  }, []);
+
+  // Start voice recording
+  const startRecording = () => {
+    if (recognitionRef.current && !isRecording) {
+      setTranscript('');
+      recognitionRef.current.start();
+      setIsRecording(true);
+    }
+  };
+
+  // Stop voice recording and process
+  const stopRecording = async () => {
+    if (recognitionRef.current && isRecording) {
+      recognitionRef.current.stop();
+      setIsRecording(false);
+      
+      // Process the transcript
+      if (transcript.trim()) {
+        await processVoiceInput(transcript);
+        setTranscript('');
+      }
+    }
+  };
+
+  // Process voice input through Gemini
+  const processVoiceInput = async (voiceText: string) => {
+    if (!voiceText.trim() || !isConnected || isLoading || isAvatarSpeaking) return;
+
+    setIsLoading(true);
+
+    try {
+      // Add user message to history
+      const updatedHistory = [
+        ...conversationHistory,
+        { role: 'user' as const, parts: voiceText }
+      ];
+      setConversationHistory(updatedHistory);
+
+      // Get response from Gemini
+      const response = await fetch('/api/gemini', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: voiceText,
+          history: conversationHistory
+        })
+      });
+
+      if (!response.ok) throw new Error('Failed to get response');
+
+      const { text } = await response.json();
+
+      // Add assistant response to history
+      const finalHistory = [
+        ...updatedHistory,
+        { role: 'model' as const, parts: text }
+      ];
+      setConversationHistory(finalHistory);
+
+      // Send to HeyGen with REPEAT task
+      if (avatarRef.current) {
+        await avatarRef.current.speak({
+          text: text,
+          task_type: TaskType.REPEAT,
+          taskMode: TaskMode.SYNC
+        });
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleSendMessage = async () => {
     if (!message.trim() || !isConnected || isLoading || isAvatarSpeaking) return;
@@ -83,17 +196,16 @@ export function InterviewAvatar({
       ];
       setConversationHistory(finalHistory);
 
-      // Send to HeyGen with REPEAT task (fixed property names)
+      // Send to HeyGen with REPEAT task
       if (avatarRef.current) {
         await avatarRef.current.speak({
           text: text,
-          task_type: TaskType.REPEAT,  // Fixed: was taskType
-          taskMode: TaskMode.SYNC  // Added: specify sync mode
+          task_type: TaskType.REPEAT,
+          taskMode: TaskMode.SYNC
         });
       }
     } catch (error) {
       console.error('Error:', error);
-      // You might want to show an error message to the user here
     } finally {
       setIsLoading(false);
     }
@@ -172,7 +284,7 @@ export function InterviewAvatar({
       sessionDataRef.current = await avatarRef.current.createStartAvatar({
         quality: AvatarQuality.High,
         avatarName,
-        knowledgeBase: "You are a senior software engineer specialising in fullstack development. You are conducting an interview for the position of SWE 1. Ask relevant interview questions."
+        // Don't use knowledgeBase since we're controlling via Gemini
       });
 
     } catch (error) {
@@ -186,6 +298,9 @@ export function InterviewAvatar({
   // Clean up on unmount
   useEffect(() => {
     return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
       if (avatarRef.current && sessionDataRef.current) {
         avatarRef.current.stopAvatar().catch(console.error);
       }
@@ -196,7 +311,7 @@ export function InterviewAvatar({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSendMessage(); // Fixed: was calling handleSpeak
+      handleSendMessage();
     }
   };
 
@@ -219,26 +334,76 @@ export function InterviewAvatar({
             Speaking...
           </div>
         )}
+        {isRecording && (
+          <div className="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm">
+            🎤 Listening...
+          </div>
+        )}
       </div>
 
-      <div className="w-full max-w-2xl flex flex-col space-y-2">
+      {/* Input Mode Toggle */}
+      {isConnected && (
         <div className="flex space-x-2">
-          <Input
-            type="text"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Type your message..."
-            disabled={!isConnected || isLoading || isAvatarSpeaking}
-            className="flex-1"
-          />
-          <Button 
-            onClick={handleSendMessage} 
-            disabled={!isConnected || !message.trim() || isLoading || isAvatarSpeaking}
+          <Button
+            onClick={() => setInputMode('text')}
+            variant={inputMode === 'text' ? 'default' : 'outline'}
+            disabled={isLoading}
           >
-            {isLoading ? 'Processing...' : 'Send'}
+            Text Mode
+          </Button>
+          <Button
+            onClick={() => setInputMode('voice')}
+            variant={inputMode === 'voice' ? 'default' : 'outline'}
+            disabled={isLoading || !recognitionRef.current}
+          >
+            Voice Mode
           </Button>
         </div>
+      )}
+
+      <div className="w-full max-w-2xl flex flex-col space-y-2">
+        {/* Text Input (only show in text mode) */}
+        {inputMode === 'text' && (
+          <div className="flex space-x-2">
+            <Input
+              type="text"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Type your message..."
+              disabled={!isConnected || isLoading || isAvatarSpeaking}
+              className="flex-1"
+            />
+            <Button 
+              onClick={handleSendMessage} 
+              disabled={!isConnected || !message.trim() || isLoading || isAvatarSpeaking}
+            >
+              {isLoading ? 'Processing...' : 'Send'}
+            </Button>
+          </div>
+        )}
+
+        {/* Voice Input (only show in voice mode) */}
+        {inputMode === 'voice' && (
+          <div className="flex flex-col space-y-2">
+            <div className="flex space-x-2">
+              <Button
+                onClick={isRecording ? stopRecording : startRecording}
+                disabled={!isConnected || isLoading || isAvatarSpeaking || !recognitionRef.current}
+                className={`flex-1 ${isRecording ? 'bg-red-500 hover:bg-red-600' : ''}`}
+              >
+                {isRecording ? '🛑 Stop Recording' : '🎤 Start Recording'}
+              </Button>
+            </div>
+            {transcript && (
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-600">Transcript:</p>
+                <p className="text-gray-900">{transcript}</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {!isConnected && (
           <Button
             onClick={initializeAvatar}
@@ -250,7 +415,16 @@ export function InterviewAvatar({
         )}
       </div>
 
-      {/* Conversation History Display (Optional) */}
+      {/* Browser compatibility warning */}
+      {inputMode === 'voice' && !recognitionRef.current && (
+        <div className="w-full max-w-2xl p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <p className="text-sm text-yellow-800">
+            Voice input requires Chrome/Edge browser with Web Speech API support.
+          </p>
+        </div>
+      )}
+
+      {/* Conversation History Display */}
       {conversationHistory.length > 0 && (
         <div className="w-full max-w-2xl bg-gray-50 rounded-lg p-4 max-h-60 overflow-y-auto">
           <h3 className="font-semibold mb-2">Conversation History:</h3>
