@@ -7,6 +7,7 @@ import StreamingAvatar, { AvatarQuality, StreamingEvents, TaskMode, TaskType } f
 
 type InterviewAvatarProps = {
   avatarName?: string;
+  interviewId?: string;
   onReady?: () => void;
   onDisconnected?: () => void;
   className?: string;
@@ -32,6 +33,7 @@ async function fetchAccessToken() {
 
 export function InterviewAvatar({
   avatarName = 'Wayne_20240711',
+  interviewId,
   onReady,
   onDisconnected,
   className = '',
@@ -124,15 +126,18 @@ export function InterviewAvatar({
       ];
       setConversationHistory(updatedHistory);
 
-      // Get response from Gemini
+      // Get response from Gemini with interview context
+      console.log('Sending request to /api/gemini with interviewId:', interviewId);
       const response = await fetch('/api/gemini', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: JSON.stringify({  
           message: voiceText,
-          history: conversationHistory
+          history: updatedHistory,
+          interviewId // Include interview ID for context
         })
       });
+      console.log('Received response from /api/gemini:', response.status);
 
       if (!response.ok) throw new Error('Failed to get response');
 
@@ -175,15 +180,18 @@ export function InterviewAvatar({
       ];
       setConversationHistory(updatedHistory);
 
-      // Get response from Gemini
+      // Get response from Gemini with interview context
+      console.log('Sending request to /api/gemini with interviewId:', interviewId);
       const response = await fetch('/api/gemini', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: userMessage,
-          history: conversationHistory
+          history: updatedHistory,
+          interviewId // Include interview ID for context
         })
       });
+      console.log('Received response from /api/gemini:', response.status);
 
       if (!response.ok) throw new Error('Failed to get response');
 
@@ -211,11 +219,15 @@ export function InterviewAvatar({
     }
   };
 
-  // Start the interview automatically after connecting
+  // Start the interview automatically after connecting with context
   const startInterview = async () => {
     try {
       const response = await fetch('/api/start-interview', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          interviewId // Include interview ID for context
+        })
       });
       
       if (!response.ok) throw new Error('Failed to start interview');
@@ -256,7 +268,7 @@ export function InterviewAvatar({
             videoRef.current?.play().catch(console.error);
             setIsConnected(true);
             onReady?.();
-            // Auto-start the interview
+            // Auto-start the interview with context
             await startInterview();
           };
         }
@@ -282,7 +294,7 @@ export function InterviewAvatar({
 
       // Start the avatar session
       sessionDataRef.current = await avatarRef.current.createStartAvatar({
-        quality: AvatarQuality.High,
+        quality: AvatarQuality.Medium,
         avatarName,
         // Don't use knowledgeBase since we're controlling via Gemini
       });
@@ -317,6 +329,18 @@ export function InterviewAvatar({
 
   return (
     <div className={`flex flex-col items-center space-y-4 ${className}`}>
+      {/* Interview Info Display */}
+      {interviewId && (
+        <div className="w-full max-w-2xl bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <p className="text-sm text-blue-800">
+            <strong>Interview Session:</strong> {interviewId}
+          </p>
+          <p className="text-xs text-blue-600 mt-1">
+            This interview is tailored based on your resume and the job requirements.
+          </p>
+        </div>
+      )}
+
       <div className="relative w-full max-w-2xl aspect-video bg-gray-100 rounded-lg overflow-hidden">
         <video
           ref={videoRef}
@@ -335,8 +359,13 @@ export function InterviewAvatar({
           </div>
         )}
         {isRecording && (
-          <div className="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm">
+          <div className="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm animate-pulse">
             🎤 Listening...
+          </div>
+        )}
+        {isLoading && (
+          <div className="absolute bottom-4 left-4 bg-yellow-500 text-white px-3 py-1 rounded-full text-sm">
+            Processing...
           </div>
         )}
       </div>
@@ -370,7 +399,7 @@ export function InterviewAvatar({
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Type your message..."
+              placeholder="Type your answer..."
               disabled={!isConnected || isLoading || isAvatarSpeaking}
               className="flex-1"
             />
@@ -396,8 +425,8 @@ export function InterviewAvatar({
               </Button>
             </div>
             {transcript && (
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-600">Transcript:</p>
+              <div className="p-3 bg-gray-50 rounded-lg border">
+                <p className="text-sm text-gray-600 mb-1">Live Transcript:</p>
                 <p className="text-gray-900">{transcript}</p>
               </div>
             )}
@@ -410,7 +439,7 @@ export function InterviewAvatar({
             disabled={isLoading}
             className="w-full"
           >
-            {isLoading ? 'Connecting...' : 'Connect Avatar'}
+            {isLoading ? 'Connecting...' : 'Start Interview'}
           </Button>
         )}
       </div>
@@ -427,15 +456,36 @@ export function InterviewAvatar({
       {/* Conversation History Display */}
       {conversationHistory.length > 0 && (
         <div className="w-full max-w-2xl bg-gray-50 rounded-lg p-4 max-h-60 overflow-y-auto">
-          <h3 className="font-semibold mb-2">Conversation History:</h3>
-          {conversationHistory.map((msg, index) => (
-            <div key={index} className={`mb-2 p-2 rounded ${
-              msg.role === 'user' ? 'bg-blue-100 ml-4' : 'bg-green-100 mr-4'
-            }`}>
-              <strong>{msg.role === 'user' ? 'You: ' : 'Interviewer: '}</strong>
-              {msg.parts}
-            </div>
-          ))}
+          <h3 className="font-semibold mb-2 text-gray-700">Conversation History:</h3>
+          <div className="space-y-2">
+            {conversationHistory.map((msg, index) => (
+              <div key={index} className={`p-3 rounded-lg ${
+                msg.role === 'user' 
+                  ? 'bg-blue-100 ml-4 border-l-4 border-blue-500' 
+                  : 'bg-green-100 mr-4 border-l-4 border-green-500'
+              }`}>
+                <div className="flex items-start space-x-2">
+                  <span className="text-xs font-semibold text-gray-600 mt-1">
+                    {msg.role === 'user' ? 'You:' : 'Interviewer:'}
+                  </span>
+                  <p className="text-sm text-gray-800 flex-1">{msg.parts}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Interview Tips */}
+      {isConnected && conversationHistory.length === 1 && (
+        <div className="w-full max-w-2xl p-4 bg-green-50 border border-green-200 rounded-lg">
+          <h4 className="font-semibold text-green-800 mb-2">💡 Interview Tips:</h4>
+          <ul className="text-sm text-green-700 space-y-1">
+            <li>• Take your time to think before answering</li>
+            <li>• Ask for clarification if you don't understand a question</li>
+            <li>• Explain your thought process when solving problems</li>
+            <li>• Use specific examples from your experience when possible</li>
+          </ul>
         </div>
       )}
     </div>
