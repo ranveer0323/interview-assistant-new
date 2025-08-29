@@ -47,7 +47,7 @@ export function InterviewAvatar({
   const [inputMode, setInputMode] = useState<'text' | 'voice'>('text');
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
-  
+
   const avatarRef = useRef<StreamingAvatar | null>(null);
   const sessionDataRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -103,7 +103,7 @@ export function InterviewAvatar({
     if (recognitionRef.current && isRecording) {
       recognitionRef.current.stop();
       setIsRecording(false);
-      
+
       // Process the transcript
       if (transcript.trim()) {
         await processVoiceInput(transcript);
@@ -131,7 +131,7 @@ export function InterviewAvatar({
       const response = await fetch('/api/gemini', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({  
+        body: JSON.stringify({
           message: voiceText,
           history: updatedHistory,
           interviewId // Include interview ID for context
@@ -229,14 +229,14 @@ export function InterviewAvatar({
           interviewId // Include interview ID for context
         })
       });
-      
+
       if (!response.ok) throw new Error('Failed to start interview');
-      
+
       const { text } = await response.json();
-      
+
       // Add opening message to history
       setConversationHistory([{ role: 'model', parts: text }]);
-      
+
       // Make avatar speak the opening
       if (avatarRef.current) {
         await avatarRef.current.speak({
@@ -257,9 +257,9 @@ export function InterviewAvatar({
     setIsLoading(true);
     try {
       const token = await fetchAccessToken();
-      
+
       avatarRef.current = new StreamingAvatar({ token });
-      
+
       // Stream ready event
       avatarRef.current.on(StreamingEvents.STREAM_READY, async (event: any) => {
         if (event.detail && videoRef.current) {
@@ -292,6 +292,12 @@ export function InterviewAvatar({
         setIsAvatarSpeaking(false);
       });
 
+      avatarRef.current.on(StreamingEvents.STREAM_DISCONNECTED, () => {
+        console.log('Stream has been disconnected');
+        setIsAvatarSpeaking(false); // ensure UI doesn't get stuck in "speaking" state
+        // optionally clean up or attempt reconnect
+      });
+
       // Start the avatar session
       sessionDataRef.current = await avatarRef.current.createStartAvatar({
         quality: AvatarQuality.Medium,
@@ -306,6 +312,25 @@ export function InterviewAvatar({
       setIsLoading(false);
     }
   };
+
+  const stopInterview = async () => {
+    try {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      if (avatarRef.current) {
+        // Close voice chat if running
+        await avatarRef.current.closeVoiceChat().catch(() => { });
+        // Stop avatar session
+        await avatarRef.current.stopAvatar();
+      }
+      setIsConnected(false); // reset connection state
+      console.log("Interview stopped successfully.");
+    } catch (err) {
+      console.error("Error stopping interview:", err);
+    }
+  };
+
 
   // Clean up on unmount
   useEffect(() => {
@@ -403,8 +428,8 @@ export function InterviewAvatar({
               disabled={!isConnected || isLoading || isAvatarSpeaking}
               className="flex-1"
             />
-            <Button 
-              onClick={handleSendMessage} 
+            <Button
+              onClick={handleSendMessage}
               disabled={!isConnected || !message.trim() || isLoading || isAvatarSpeaking}
             >
               {isLoading ? 'Processing...' : 'Send'}
@@ -433,7 +458,7 @@ export function InterviewAvatar({
           </div>
         )}
 
-        {!isConnected && (
+        {/* {!isConnected && (
           <Button
             onClick={initializeAvatar}
             disabled={isLoading}
@@ -441,8 +466,30 @@ export function InterviewAvatar({
           >
             {isLoading ? 'Connecting...' : 'Start Interview'}
           </Button>
+        )} */}
+      </div>
+
+      {/* Start / Stop button */}
+      <div className="w-full max-w-2xl">
+        {!isConnected ? (
+          <Button
+            onClick={initializeAvatar}
+            disabled={isLoading}
+            className="w-full bg-green-600 hover:bg-green-700"
+          >
+            {isLoading ? 'Connecting...' : 'Start Interview'}
+          </Button>
+        ) : (
+          <Button
+            onClick={stopInterview}
+            disabled={isLoading}
+            className="w-full bg-red-600 hover:bg-red-700"
+          >
+            Stop Interview
+          </Button>
         )}
       </div>
+
 
       {/* Browser compatibility warning */}
       {inputMode === 'voice' && !recognitionRef.current && (
@@ -459,11 +506,10 @@ export function InterviewAvatar({
           <h3 className="font-semibold mb-2 text-gray-700">Conversation History:</h3>
           <div className="space-y-2">
             {conversationHistory.map((msg, index) => (
-              <div key={index} className={`p-3 rounded-lg ${
-                msg.role === 'user' 
-                  ? 'bg-blue-100 ml-4 border-l-4 border-blue-500' 
-                  : 'bg-green-100 mr-4 border-l-4 border-green-500'
-              }`}>
+              <div key={index} className={`p-3 rounded-lg ${msg.role === 'user'
+                ? 'bg-blue-100 ml-4 border-l-4 border-blue-500'
+                : 'bg-green-100 mr-4 border-l-4 border-green-500'
+                }`}>
                 <div className="flex items-start space-x-2">
                   <span className="text-xs font-semibold text-gray-600 mt-1">
                     {msg.role === 'user' ? 'You:' : 'Interviewer:'}
