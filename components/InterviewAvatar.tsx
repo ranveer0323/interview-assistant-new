@@ -47,6 +47,7 @@ export function InterviewAvatar({
   const [inputMode, setInputMode] = useState<'text' | 'voice'>('text');
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const avatarRef = useRef<StreamingAvatar | null>(null);
   const sessionDataRef = useRef<any>(null);
@@ -314,20 +315,73 @@ export function InterviewAvatar({
   };
 
   const stopInterview = async () => {
+    setIsSaving(true);
+
     try {
+      // Save conversation to database before stopping (only if we have conversation data)
+      if (conversationHistory.length > 0 && interviewId) {
+        console.log('Saving conversation to database...');
+
+        const saveResponse = await fetch(`/api/interview/${interviewId}/save-conversation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversationHistory,
+            completedAt: new Date().toISOString(),
+            avatarName,
+            totalMessages: conversationHistory.length
+          })
+        });
+
+        if (!saveResponse.ok) {
+          const errorText = await saveResponse.text();
+          console.error('Failed to save conversation:', saveResponse.status, errorText);
+          // You could show a toast notification here
+          alert('Warning: Failed to save interview conversation');
+        } else {
+          console.log('Conversation saved successfully');
+        }
+      }
+
+      // Stop speech recognition
       if (recognitionRef.current) {
         recognitionRef.current.stop();
+        setIsRecording(false);
       }
+
+      // Stop avatar
       if (avatarRef.current) {
         // Close voice chat if running
         await avatarRef.current.closeVoiceChat().catch(() => { });
         // Stop avatar session
         await avatarRef.current.stopAvatar();
       }
-      setIsConnected(false); // reset connection state
+
+      // Reset all states
+      setIsConnected(false);
+      setIsAvatarSpeaking(false);
+      setTranscript('');
       console.log("Interview stopped successfully.");
+
     } catch (err) {
       console.error("Error stopping interview:", err);
+
+      // Even if saving fails, we should still try to stop the avatar
+      try {
+        if (recognitionRef.current) {
+          recognitionRef.current.stop();
+          setIsRecording(false);
+        }
+        if (avatarRef.current) {
+          await avatarRef.current.stopAvatar();
+        }
+        setIsConnected(false);
+        setIsAvatarSpeaking(false);
+      } catch (stopErr) {
+        console.error("Error in cleanup:", stopErr);
+      }
+    } finally {
+      setIsSaving(false);
     }
   };
 

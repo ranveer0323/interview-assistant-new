@@ -12,10 +12,10 @@ export default function Home() {
       </p>
 
       <Link
-        href="/interview"
+        href="/create-interview"
         className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded-lg transition"
       >
-        Start Interview
+        Start Now
       </Link>
     </main>
   );
