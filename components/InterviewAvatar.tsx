@@ -10,6 +10,7 @@ type InterviewAvatarProps = {
   interviewId?: string;
   onReady?: () => void;
   onDisconnected?: () => void;
+  onInterviewComplete?: () => void;
   className?: string;
 };
 
@@ -36,6 +37,7 @@ export function InterviewAvatar({
   interviewId,
   onReady,
   onDisconnected,
+  onInterviewComplete,
   className = '',
 }: InterviewAvatarProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -363,6 +365,11 @@ export function InterviewAvatar({
       setTranscript('');
       console.log("Interview stopped successfully.");
 
+      // Navigate to results page after successful cleanup
+      if (onInterviewComplete) {
+        onInterviewComplete();
+      }
+
     } catch (err) {
       console.error("Error stopping interview:", err);
 
@@ -377,6 +384,11 @@ export function InterviewAvatar({
         }
         setIsConnected(false);
         setIsAvatarSpeaking(false);
+
+        if (onInterviewComplete) {
+          onInterviewComplete();
+        }
+
       } catch (stopErr) {
         console.error("Error in cleanup:", stopErr);
       }

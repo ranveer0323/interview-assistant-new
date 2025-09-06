@@ -11,6 +11,15 @@ interface InterviewContext {
   companyName?: string;
 }
 
+interface InterviewCallContext {
+  jobDescription?: string;
+  resumeText?: string;
+  job_role?: string;
+  companyName?: string;
+  chatHistory?: string;
+}
+
+
 function generateSystemPrompt(context: InterviewContext): string {
   const { jobDescription, resumeText, job_role = "Software Engineer Level 1", companyName } = context;
   
@@ -112,7 +121,7 @@ export async function startInterview(context?: InterviewContext) {
     let startMessage = 'Start the interview now. Introduce yourself and ask the first question.';
     
     if (context?.resumeText) {
-      startMessage += ' Reference something specific from their resume to make them feel comfortable and show you\'ve reviewed their background.';
+      startMessage += ' Reference something specific from their resume to make them feel comfortable and show you\'ve reviewed their background. Briefly mention the job role and start the interview.';
     }
 
     const response = await ai.models.generateContent({
@@ -120,6 +129,48 @@ export async function startInterview(context?: InterviewContext) {
       contents: startMessage,
       config: {
         systemInstruction: generateSystemPrompt(context || {})
+      }
+    });
+
+    return response.text;
+  } catch (error) {
+    console.error('Error starting interview:', error);
+    throw error;
+  }
+}
+
+export async function interviewFeedback(context?: InterviewCallContext) {
+  try {
+
+    const { job_role = "Software Engineer Level 1", companyName = "Acme Inc", jobDescription, resumeText, chatHistory } = context || {};
+
+    const evaluationPrompt = `
+      You are a senior HR executive responsible for evaluating candidate interviews and guide them on improving. 
+  
+      Based on the provided interview call transcript for the Job: ${job_role} at the Company: ${companyName}.
+      
+      The job description is:
+      ${jobDescription}
+      
+      Here's is the text from candidate's resume:
+      ${resumeText}
+      
+      Here is the interview transcript:
+      ${chatHistory}
+      
+      Based on these details conduct a thorough evaluation of the candidate across several parameters and give your final evaluation and actionables for the candidate to improve in well formatted text.`
+
+    
+    
+    let contents = 'Evaluate the candidate interview call';
+    
+    
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: contents,
+      config: {
+        systemInstruction: evaluationPrompt
       }
     });
 
