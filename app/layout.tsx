@@ -34,11 +34,14 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased `}
       >
         <ClerkProvider>
-          <Navbar/>
-          {children}
+          <div className="p-6">
+            <Navbar/>
+            {children}
+          </div>
+          
         </ClerkProvider> 
       </body>
     </html>

@@ -91,3 +91,19 @@ export const updateInterviewFeedback = async (
 
   return data[0];
 };
+
+export const getInterviewsByUser = async (userId: string) => {
+
+  const supabase = createSupabaseClient();
+  
+  const {data, error} = await supabase
+    .from("interviews")
+    .select()
+    .eq("author", userId);
+    
+  if (error || !data) {
+    throw new Error(error?.message || `Failed to fetch all interviews for the User ID: ${userId}`)
+  }
+
+  return data || [];
+}
